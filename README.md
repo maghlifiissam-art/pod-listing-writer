@@ -1,93 +1,77 @@
 # POD Listing Writer
 
-Upload a t-shirt design, get an SEO-ready title, tags and description sized to each
-print-on-demand marketplace's exact rules - Etsy, Redbubble and TeePublic - with
-trademark flags and live trend grounding.
+Upload your artwork and get draft titles, tags and descriptions for Etsy,
+Redbubble and TeePublic. Review each listing before publishing it.
 
-Demo: https://pod-seo-tool.magpro369.workers.dev (currently serves the
-pre-hackathon Workers AI build; the Nemotron re-engine deploys when Token
-Factory access lands)
+Demo: https://pod-seo-tool.magpro369.workers.dev
 
-**Status:** the Nemotron/Tavily pipeline is code-complete and verified offline
-with mock-backed tests (budget gate, rule enforcement, fallback labeling).
-Live Token Factory and Tavily calls are pending account access; every
-live-dependent claim in the submission materials is re-checked against real
-runs before submitting.
+## Verified status (October 29, 2026)
 
-## Why it exists
+The public demo passed a real generation on Nebius Token Factory: NVIDIA
+Nemotron 3.5 Super VL for vision and Nemotron 3 Super 120B A12B for writing.
+The result names the actual backend and model used. Live trend search is
+currently disabled. Listings are based on the image, not live market research.
 
-POD sellers lose sales to weak listings: wrong tag counts, truncated titles, generic
-keywords, and accidental trademark terms that get listings removed. Existing SEO tools
-charge $5-30/month. This tool is free (5 designs/day, no signup) and writes listings
-that fit each platform's real limits.
+## Pipeline
 
-## How it works
+1. The browser resizes the uploaded image. The API rejects unsupported formats,
+   images over 200 KB, and images over 1024 pixels on the long side.
+2. `nvidia/Nemotron-3.5-Super-VL` describes the image via Token Factory.
+3. `nvidia/nemotron-3-super-120b-a12b` writes platform-specific drafts. The
+   prompt distinguishes printed artwork from garment construction.
+4. `src/rules.js` clips and deduplicates tags, applies platform-specific length
+   limits, and flags a small list of brand terms. This is not legal clearance
+   or a guarantee of search ranking or marketplace acceptance.
 
-1. **Design understanding (vision).** The uploaded design is analyzed by a
-   vision-language model (**NVIDIA Nemotron 3.5 Super VL**) served on **Nebius
-   Token Factory** - it reads the artwork, quotes any text on it exactly, and
-   infers the likely audience.
-2. **Live trend grounding, honestly capped.** While its verified free quota
-   lasts, **Tavily** search retrieves today's real buyer-search trends for the
-   design's subject, so tags and titles follow what shoppers actually type this
-   week instead of stale model memory. A lifetime cap in the budget Durable
-   Object enforces the quota; when it is spent, generations continue ungrounded
-   and the results page says so - nothing ever bills.
-3. **Listing writing (reasoning).** **NVIDIA Nemotron-3-Super-120B-A12B** on Token
-   Factory writes one listing per platform, grounded in the trend research
-   when grounding is active.
-4. **Rule enforcement.** `src/rules.js` hard-enforces each platform's limits
-   (Etsy: 13 tags x 20 chars, title 140; Redbubble: 15 x 50, title 60; TeePublic:
-   up to 15 tags, one designated main tag weighted heavily in search) and flags ~50 commonly protected brand terms.
+Optional Tavily integration is implemented but disabled in this deployment.
+The UI distinguishes disabled search from exhausted or unconfigured search.
+If no Nebius key is configured, the code has a labeled Workers AI fallback.
+A configured Nebius request failure returns an error rather than silently
+claiming a successful Nemotron result.
 
-Model routing follows the Token Factory pattern: Nemotron 3.5 Super VL handles
-the fast image pass, and the larger Nemotron 3 Super 120B handles the one
-reasoning-heavy listing pass - the whole AI pipeline stays in the NVIDIA Nemotron
-family, and each generation stays quick and credit-cheap.
+## Demo limits and cost controls
 
-## Stack
+No signup or payment is required for visitors. The shared demo allows up to
+5 attempts per IP per day and 100 globally per day, with lifetime caps of
+500 generations and an $8 recorded-cost budget. Capacity can be exhausted.
+A SQLite-backed Durable Object reserves estimated cost before a model call
+and settles against reported API usage. Failed calls retain their reserve.
+These controls reduce exposure; they are not a guaranteed account-balance
+floor. See `docs/budget-math.md` for the estimate and its limits.
 
-- Frontend + API: Cloudflare Workers (static assets + `/api/generate`)
-- AI: Nebius Token Factory, OpenAI-compatible endpoint
-  (`https://api.tokenfactory.nebius.com/v1/chat/completions`)
-- Trend grounding: Tavily Search API
-- Spend control: a Cloudflare Durable Object (SQLite-backed, one global instance) atomically enforces 5 free generations/day per IP hash, a global daily demo budget, and a lifetime Tavily grounding cap - all before any backend call, failing closed on error
-- Resilience: if no `NEBIUS_API_KEY` is configured, the worker falls back to
-  Cloudflare Workers AI so the free tier stays alive.
+## Run and deploy
 
-## Run it yourself
+Use Node.js 22+, a Cloudflare account, and your own Nebius Token Factory key.
+Provider usage can incur charges. Review rates and set your own limits first.
 
-Requirements: a Cloudflare account (free) and Node.js 18+.
-
-```bash
+```sh
 npm install -g wrangler
 wrangler login
-# the Budget Durable Object and its SQLite migration are already declared in
-# wrangler.toml - no KV namespace to create
-# AI keys
-wrangler secret put NEBIUS_API_KEY   # from https://tokenfactory.nebius.com
-wrangler secret put TAVILY_API_KEY   # from https://tavily.com
-# deploy
+wrangler secret put NEBIUS_API_KEY
 wrangler deploy
 ```
 
-Then open the workers.dev URL, upload a design image, pick platforms, Generate.
+The Durable Object binding and SQLite migration are declared in
+`wrangler.toml`. Leave `TAVILY_LIFETIME_MAX=0` to keep search disabled.
+Never commit keys or `.dev.vars`.
 
-## Nebius x NVIDIA Global AI Hackathon notes
+Offline tests (no model calls):
 
-- **Track:** Best Apps and Agents.
-- **NVIDIA open models used:** Nemotron 3.5 Super VL
-  (`nvidia/Nemotron-3.5-Super-VL`) reads the artwork, and Nemotron-3-Super-120B-A12B
-  (`nvidia/nemotron-3-super-120b-a12b`) writes every listing on the primary
-  path - both served via Nebius Token Factory, so the whole primary pipeline
-  runs on NVIDIA open models. If Token Factory is unreachable or no
-  `NEBIUS_API_KEY` is configured, a labeled Cloudflare Workers AI fallback
-  serves degraded output and the results page names the actual models used.
-- **Where Token Factory accelerated the workflow:** a single OpenAI-compatible
-  endpoint hosts both the multimodal and the reasoning model, so the whole AI backend
-  is one fetch integration with no infrastructure to run.
-- **What was significantly updated during the Submission Period:** the original tool
-  (built October 2026, before entry) ran entirely on Cloudflare Workers AI. The
-  hackathon version re-engines both AI steps onto Nebius Token Factory with NVIDIA
-  Nemotron models, adds Tavily live trend grounding as a new pipeline stage, surfaces
-  the trend research in the UI, and adds engine metadata to every response.
+```sh
+node test/local.test.mjs
+```
+
+## Hackathon
+
+Track: Best Apps and Agents, Nebius x NVIDIA Global AI Hackathon.
+The October 2026 baseline used Cloudflare Workers AI. During the hackathon
+work, both model stages were moved to NVIDIA Nemotron on Nebius Token Factory,
+with runtime model metadata, image bounds, fail-closed budgets, measured-cost
+settlement, artwork-versus-garment prompting and offline tests added.
+
+## Repository history and license
+
+MIT license. This public repository is a recreated web import of the project
+source. Its web-import commits do not reproduce the original local development
+history. No original development timestamps or ten-commit history are claimed
+for this public import.
