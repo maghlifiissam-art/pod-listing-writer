@@ -1,0 +1,58 @@
+name = "pod-seo-tool"
+main = "src/worker.js"
+compatibility_date = "2026-09-30"
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[ai]
+binding = "AI"
+
+[[durable_objects.bindings]]
+name = "BUDGET"
+class_name = "Budget"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Budget"]
+
+[vars]
+FREE_PER_DAY = "5"
+GLOBAL_PER_DAY = "100"
+# Lifetime cap on Tavily search calls (the binding free-quota constraint).
+# FAIL CLOSED: the shipped default is 0, which disables grounding entirely.
+# Set it only from the VERIFIED current Tavily balance before the first live
+# call (floor of verified remaining credits, with a safety margin). An
+# unknown balance must mean no Tavily calls - never a guessed default.
+TAVILY_LIFETIME_MAX = "0"
+# Lifetime caps on PAID generations (Nebius path), enforced atomically in
+# the Budget Durable Object BEFORE any paid call:
+# - generation count cap (NEBIUS_LIFETIME_MAX, 500)
+# - measured-cost budget (NEBIUS_LIFETIME_COST_USD, $8): each generation
+#   reserves a worst-case cost computed from the actual image dimensions
+#   (area/200 + 500 tokens, a conservative bound - observed 1538 tokens for
+#   a 1536x1024 sheet, no documented max tokenization found) plus hard
+#   max_tokens output caps, at verified rates ($0.3/1M in, $0.9/1M out).
+#   After each call the reservation is SETTLED to the measured usage from
+#   the API response, so the ledger tracks real spend, not the estimate.
+# These caps REDUCE EXPOSURE; they are not a guaranteed dollar protection
+# (the pre-call reservation is an estimate; settle self-corrects after each
+# call, and a failed settle keeps the conservative reservation). Later
+# calls fail closed once recorded spend + reservation exceeds the budget.
+# Design intent: cumulative recorded spend hard-capped at $8 so the balance
+# stays above the $30 floor ($25 reserved + $5 user floor) through Dec 15
+# judging - improved exposure control, NOT a proven balance floor (one
+# in-flight call can exceed its reservation before settlement; bounded by
+# the max_tokens + dimension caps to < ~$0.01).
+NEBIUS_LIFETIME_MAX = "500"
+NEBIUS_LIFETIME_COST_USD = "8"
+
+# Secrets (set with: npx wrangler secret put <NAME>):
+#   NEBIUS_API_KEY  - Nebius Token Factory key (https://tokenfactory.nebius.com)
+#   TAVILY_API_KEY  - Tavily search key (https://tavily.com) for live trend grounding
+# Without NEBIUS_API_KEY the worker falls back to Cloudflare Workers AI.
+# Spend control: the Budget Durable Object (SQLite, single "global" instance)
+# atomically enforces GLOBAL_PER_DAY across all visitors and FREE_PER_DAY per IP
+# before any paid backend call (Nebius, Tavily, or the Workers AI fallback).
