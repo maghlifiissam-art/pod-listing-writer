@@ -1,4 +1,4 @@
-import workerDefault, { generate, Budget } from './worker.mjs';
+import workerDefault, { generate, Budget } from '../src/worker.js';
 
 class FakeSql {
   constructor() { this.m = new Map(); }
