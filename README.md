@@ -26,8 +26,8 @@ currently disabled. Listings are based on the image, not live market research.
 Optional Tavily integration is implemented but disabled in this deployment.
 The UI distinguishes disabled search from exhausted or unconfigured search.
 If no Nebius key is configured, the code has a labeled Workers AI fallback.
-A configured Nebius request failure returns an error rather than silently
-claiming a successful Nemotron result.
+Transport or HTTP failures can also take that labeled fallback path. Empty
+model content is an explicit error, not a silent engine swap.
 
 ## Demo limits and cost controls
 
